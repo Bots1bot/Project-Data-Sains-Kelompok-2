@@ -1,148 +1,172 @@
-# app.py (adaptif)
 import streamlit as st
 import pandas as pd
 import pickle
 import numpy as np
+from pathlib import Path
 
-st.set_page_config(page_title="Prediksi Harga Rumah", layout="wide")
+st.set_page_config(page_title="Prediksi Harga Rumah", layout="wide", page_icon="🏡")
 
-# ---------------------------
-# Load model
-# ---------------------------
-try:
-    with open("full_model.pkl", "rb") as f:
-        model = pickle.load(f)
-    st.success("Model berhasil dimuat.")
-except Exception as e:
-    st.error(f"Gagal memuat model: {e}")
-    st.stop()
+@st.cache_resource
+def load_model_file(path: str = "full_model.pkl"):
+    try:
+        with open(path, "rb") as f:
+            return pickle.load(f), None
+    except Exception as e:
+        return None, str(e)
 
-# Try to obtain expected feature names if available
-expected_features = None
-try:
-    expected_features = list(model.feature_names_in_)
-except Exception:
-    # not all sklearn estimators expose feature_names_in_
-    expected_features = None
+model, load_error = load_model_file("full_model.pkl")
 
-st.title("🏡 Prediksi Harga Rumah (Adaptif Input)")
+st.title("🏡 Prediksi Harga Rumah — Adaptif & Ramah Pengguna")
 
-# ---------------------------
-# Sidebar inputs (user)
-# ---------------------------
-st.sidebar.header("Input Properti Rumah")
-bedrooms = st.sidebar.slider("Jumlah Kamar Tidur", 1, 8, 3)
-bathrooms = st.sidebar.slider("Jumlah Kamar Mandi", 1, 4, 2)
-land_size_m2 = st.sidebar.slider("Luas Tanah (m²)", 10.0, 400.0, 100.0)
-building_size_m2 = st.sidebar.slider("Luas Bangunan (m²)", 10.0, 400.0, 90.0)
-floors = st.sidebar.slider("Jumlah Lantai", 1, 3, 2)
+left, right = st.columns([2, 1])
 
-city_choice = st.sidebar.selectbox("Kota", [
-    "Bekasi", "Bogor", "Depok", "Jakarta Barat", "Jakarta Pusat",
-    "Jakarta Selatan", "Jakarta Timur", "Jakarta Utara", "Tangerang"
-])
-
-furnishing_choice = st.sidebar.selectbox("Furnishing", [
-    "baru", "furnished", "semi furnished", "unfurnished"
-])
-
-# Known one-hot column lists (sesuaikan jika berbeda)
-onehot_cities = [
-    'city_ Bekasi','city_ Bogor','city_ Depok','city_ Jakarta Barat',
-    'city_ Jakarta Pusat','city_ Jakarta Selatan','city_ Jakarta Timur',
-    'city_ Jakarta Utara','city_ Tangerang'
-]
-onehot_furnish = [
-    'furnishing_baru','furnishing_furnished',
-    'furnishing_semi furnished','furnishing_unfurnished'
-]
-
-# ---------------------------
-# Build candidate inputs
-# ---------------------------
-# raw (non-encoded) version
-raw_df = pd.DataFrame([{
-    'bedrooms': bedrooms,
-    'bathrooms': bathrooms,
-    'land_size_m2': land_size_m2,
-    'building_size_m2': building_size_m2,
-    'floors': floors,
-    'city': city_choice,
-    'furnishing': furnishing_choice
-}])
-
-# one-hot encoded version (as model might expect)
-oh = {
-    'bedrooms': bedrooms,
-    'bathrooms': bathrooms,
-    'land_size_m2': land_size_m2,
-    'building_size_m2': building_size_m2,
-    'floors': floors
-}
-for c in onehot_cities:
-    oh[c] = 1 if c == f"city_ {city_choice}" else 0
-for f in onehot_furnish:
-    oh[f] = 1 if f == f"furnishing_{furnishing_choice}" else 0
-oh_df = pd.DataFrame([oh])
-
-# Show user's input summary
-st.subheader("Input pengguna (ringkasan):")
-st.write(raw_df)
-
-# ---------------------------
-# Decide which input to send to model
-# ---------------------------
-def predict_with_appropriate_input():
-    # If model exposes expected feature names, use them to choose
-    if expected_features is not None:
-        exp_set = set(expected_features)
-        # if model expects 'city' and 'furnishing' -> use raw_df
-        if {'city', 'furnishing'}.issubset(exp_set):
-            # check raw_df has the columns model wants
-            missing = list(exp_set - set(raw_df.columns))
-            if missing:
-                st.error(f"Model expects columns {missing} but raw input lacks them.")
-                return None
-            X = raw_df[expected_features] if set(expected_features).issubset(set(raw_df.columns)) else raw_df.reindex(columns=expected_features).fillna(0)
-            return model.predict(X)
-        # if model expects one-hot columns -> use oh_df
-        elif exp_set.issuperset(set(onehot_cities + onehot_furnish)):
-            missing = list(exp_set - set(oh_df.columns))
-            if missing:
-                st.error(f"Model expects one-hot columns {missing} but constructed input lacks them.")
-                return None
-            X = oh_df[expected_features]
-            return model.predict(X)
-        else:
-            # fallback: try raw, then one-hot
-            try:
-                return model.predict(raw_df)
-            except Exception:
-                try:
-                    return model.predict(oh_df)
-                except Exception as e:
-                    st.error(f"Kedua percobaan prediksi (raw & one-hot) gagal: {e}")
-                    return None
+with right:
+    st.markdown("**Pengaturan model**")
+    if model is not None:
+        st.success("Model berhasil dimuat dari full_model.pkl")
     else:
-        # model does not expose feature names -> try raw first, then one-hot
-        try:
-            return model.predict(raw_df)
-        except Exception:
+        st.error("Model gagal dimuat dari full_model.pkl")
+        st.info("Silakan unggah file model (.pkl) jika ingin menggunakan model lain")
+        uploaded = st.file_uploader("Unggah file .pkl", type=["pkl"])
+        if uploaded is not None:
             try:
-                return model.predict(oh_df)
+                model = pickle.load(uploaded)
+                st.success("Model berhasil dimuat dari unggahan Anda")
             except Exception as e:
-                st.error(f"Kedua percobaan prediksi (raw & one-hot) gagal: {e}")
-                return None
+                st.error(f"Gagal memuat model unggahan: {e}")
 
-# ---------------------------
-# Predict button
-# ---------------------------
-if st.sidebar.button("Prediksi Harga"):
-    pred = predict_with_appropriate_input()
-    if pred is not None:
+with left:
+    st.header("Masukkan Data Properti")
+    with st.form("input_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            bedrooms = st.slider("Kamar Tidur", 1, 8, 3)
+            bathrooms = st.slider("Kamar Mandi", 1, 4, 2)
+        with col2:
+            land_size_m2 = st.number_input("Luas Tanah (m²)", min_value=1.0, max_value=10000.0, value=100.0, step=1.0, format="%.1f")
+            building_size_m2 = st.number_input("Luas Bangunan (m²)", min_value=1.0, max_value=10000.0, value=90.0, step=1.0, format="%.1f")
+        with col3:
+            floors = st.slider("Jumlah Lantai", 1, 6, 2)
+            city_choice = st.selectbox("Kota", [
+                "Bekasi", "Bogor", "Depok", "Jakarta Barat", "Jakarta Pusat",
+                "Jakarta Selatan", "Jakarta Timur", "Jakarta Utara", "Tangerang"
+            ])
+        furnishing_choice = st.selectbox("Furnishing", [
+            "baru", "furnished", "semi furnished", "unfurnished"
+        ])
+        submit = st.form_submit_button("Prediksi Harga")
+
+    sample_raw = pd.DataFrame([{
+        "bedrooms": bedrooms,
+        "bathrooms": bathrooms,
+        "land_size_m2": land_size_m2,
+        "building_size_m2": building_size_m2,
+        "floors": floors,
+        "city": city_choice,
+        "furnishing": furnishing_choice
+    }])
+    st.subheader("Ringkasan Input")
+    st.table(sample_raw.T.rename(columns={0: "Nilai"}))
+
+def build_onehot_dict(city, furnishing):
+    cities = ["Bekasi", "Bogor", "Depok", "Jakarta Barat", "Jakarta Pusat",
+              "Jakarta Selatan", "Jakarta Timur", "Jakarta Utara", "Tangerang"]
+    furns = ["baru", "furnished", "semi furnished", "unfurnished"]
+    d = {}
+    for c in cities:
+        d[f"city_ {c}"] = 1 if c == city else 0
+        d[f"city_{c}"] = 1 if c == city else 0
+    for f in furns:
+        key_space = f"furnishing_{f}"
+        key_normal = f"furnishing_{f}"
+        d[key_space] = 1 if f == furnishing else 0
+        d[key_normal] = 1 if f == furnishing else 0
+    return d
+
+def get_expected_features(model_obj):
+    try:
+        feats = getattr(model_obj, "feature_names_in_", None)
+        if feats is None:
+            try:
+                transformer = getattr(model_obj, "named_steps", None)
+                if transformer:
+                    return None
+            except Exception:
+                pass
+        return list(feats) if feats is not None else None
+    except Exception:
+        return None
+
+def prepare_input_dataframe(raw_df, onehot_dict, expected_features):
+    combined = {}
+    combined.update(raw_df.iloc[0].to_dict())
+    combined.update(onehot_dict)
+    if expected_features is None:
+        return pd.DataFrame([combined])
+    row = {}
+    for feat in expected_features:
+        if feat in combined:
+            row[feat] = combined[feat]
+        else:
+            row[feat] = 0
+    return pd.DataFrame([row])
+
+def safe_predict(model_obj, X):
+    try:
+        return model_obj.predict(X)
+    except Exception as e:
         try:
-            val = float(np.array(pred).ravel()[0])
-            st.subheader("Hasil Prediksi:")
-            st.success(f"Rp {val:,.2f}")
+            X_alt = X.reindex(sorted(X.columns), axis=1).fillna(0)
+            return model_obj.predict(X_alt)
+        except Exception as e2:
+            raise RuntimeError(f"Prediksi gagal: {e} | fallback gagal: {e2}")
+
+if submit:
+    if model is None:
+        st.error("Tidak ada model yang bisa dipakai untuk prediksi. Unggah model atau perbaiki file full_model.pkl.")
+    else:
+        expected_features = get_expected_features(model)
+        onehot = build_onehot_dict(city_choice, furnishing_choice)
+        X = prepare_input_dataframe(sample_raw, onehot, expected_features)
+        st.write("Menyiapkan data untuk model...")
+        try:
+            with st.spinner("Melakukan prediksi..."):
+                pred = safe_predict(model, X)
+            if pred is None:
+                st.error("Model tidak mengembalikan prediksi.")
+            else:
+                try:
+                    val = float(np.array(pred).ravel()[0])
+                    st.subheader("Hasil Prediksi")
+                    currency = f"Rp {val:,.2f}"
+                    st.success(currency)
+                    st.info("Catatan: Hasil prediksi bersifat estimasi berdasarkan model yang digunakan")
+                except Exception as e:
+                    st.error(f"Gagal mengolah output prediksi: {e}")
         except Exception as e:
-            st.error(f"Gagal mengolah output prediksi: {e}")
+            st.error(str(e))
+
+        if hasattr(model, "feature_names_in_"):
+            try:
+                imported_feats = list(model.feature_names_in_)
+                st.write("Model mengharapkan fitur berikut:")
+                st.write(imported_feats)
+            except Exception:
+                pass
+
+        if hasattr(model, "feature_importances_"):
+            try:
+                fi = np.array(model.feature_importances_)
+                cols = X.columns.tolist()
+                if len(fi) == len(cols):
+                    imp_df = pd.DataFrame({
+                        "feature": cols,
+                        "importance": fi
+                    }).sort_values("importance", ascending=False)
+                    st.subheader("Feature importance (peringkat)")
+                    st.table(imp_df.head(10).reset_index(drop=True))
+            except Exception:
+                pass
+
+st.markdown("---")
+st.caption("Perkirakan harga rumah dengan memasukkan atribut properti. Hasil tergantung model yang digunakan. Untuk troubleshooting, unggah model .pkl yang sama dengan pipeline yang digunakan saat pelatihan.")
