@@ -1,4 +1,4 @@
-
+app_code = r"""
 # app.py (adaptif)
 import streamlit as st
 import pandas as pd
@@ -148,3 +148,23 @@ if st.sidebar.button("Prediksi Harga"):
         except Exception as e:
             st.error(f"Gagal mengolah output prediksi: {e}")
 
+"""
+
+with open("app.py", "w", encoding="utf-8") as f:
+    f.write(app_code)
+
+print("app.py berhasil dibuat!")
+
+requirements = """
+pandas==2.2.2
+numpy==2.0.2
+scikit-learn==1.6.1
+streamlit
+matplotlib==3.10.0
+seaborn==0.13.2
+"""
+
+with open("requirements.txt", "w", encoding="utf-8") as f:
+    f.write(requirements.strip())
+
+print("requirements.txt berhasil dibuat!")
