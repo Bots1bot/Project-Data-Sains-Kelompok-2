@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import pickle
 import numpy as np
-from pathlib import Path
 
 st.set_page_config(page_title="Prediksi Harga Rumah", layout="wide", page_icon="🏡")
 
@@ -14,146 +13,111 @@ def load_model_file(path: str = "full_model.pkl"):
     except Exception as e:
         return None, str(e)
 
-model, load_error = load_model_file("full_model.pkl")
+model, load_error = load_model_file()
 
-st.title("🏡 Prediksi Harga Rumah — Adaptif & Ramah Pengguna")
+st.markdown("<h1 style='text-align: center; color:#003566;'>🏡 Prediksi Harga Rumah</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size:17px;'>Masukkan detail properti untuk mendapatkan estimasi harga terbaik</p>", unsafe_allow_html=True)
+st.markdown("---")
 
-left, right = st.columns([2, 1])
+if model:
+    st.success("Model berhasil dimuat ✓")
+else:
+    st.error("Model gagal dimuat dari full_model.pkl")
+    uploaded = st.file_uploader("🔄 Unggah file model (.pkl)", type=["pkl"])
+    if uploaded:
+        try:
+            model = pickle.load(uploaded)
+            st.success("Model berhasil dimuat dari unggahan ✓")
+        except Exception as e:
+            st.error(f"Gagal memuat file: {e}")
 
-with right:
-    st.markdown("**Pengaturan model**")
-    if model is not None:
-        st.success("Model berhasil dimuat dari full_model.pkl")
-    else:
-        st.error("Model gagal dimuat dari full_model.pkl")
-        st.info("Silakan unggah file model (.pkl) jika ingin menggunakan model lain")
-        uploaded = st.file_uploader("Unggah file .pkl", type=["pkl"])
-        if uploaded is not None:
-            try:
-                model = pickle.load(uploaded)
-                st.success("Model berhasil dimuat dari unggahan Anda")
-            except Exception as e:
-                st.error(f"Gagal memuat model unggahan: {e}")
-
-with left:
-    st.header("Masukkan Data Properti")
-    with st.form("input_form"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            bedrooms = st.slider("Kamar Tidur", 1, 8, 3)
-            bathrooms = st.slider("Kamar Mandi", 1, 4, 2)
-        with col2:
-            land_size_m2 = st.number_input("Luas Tanah (m²)", min_value=1.0, max_value=10000.0, value=100.0, step=1.0, format="%.1f")
-            building_size_m2 = st.number_input("Luas Bangunan (m²)", min_value=1.0, max_value=10000.0, value=90.0, step=1.0, format="%.1f")
-        with col3:
-            floors = st.slider("Jumlah Lantai", 1, 6, 2)
-            city_choice = st.selectbox("Kota", [
-                "Bekasi", "Bogor", "Depok", "Jakarta Barat", "Jakarta Pusat",
-                "Jakarta Selatan", "Jakarta Timur", "Jakarta Utara", "Tangerang"
-            ])
-        furnishing_choice = st.selectbox("Furnishing", [
-            "baru", "furnished", "semi furnished", "unfurnished"
+st.subheader("📝 Masukkan Data Properti")
+with st.form("input_form", clear_on_submit=False):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        bedrooms = st.slider("🛏 Jumlah Kamar Tidur", 1, 8, 3)
+        bathrooms = st.slider("🚿 Jumlah Kamar Mandi", 1, 4, 2)
+    with col2:
+        land_size_m2 = st.number_input("🌿 Luas Tanah (m²)", min_value=1.0, max_value=20000.0, value=100.0, step=1.0)
+        building_size_m2 = st.number_input("🏠 Luas Bangunan (m²)", min_value=1.0, max_value=20000.0, value=90.0, step=1.0)
+    with col3:
+        floors = st.slider("🏢 Jumlah Lantai", 1, 6, 2)
+        city_choice = st.selectbox("📍 Kota", [
+            "Bekasi", "Bogor", "Depok", "Jakarta Barat", "Jakarta Pusat",
+            "Jakarta Selatan", "Jakarta Timur", "Jakarta Utara", "Tangerang"
         ])
-        submit = st.form_submit_button("Prediksi Harga")
+    furnishing_choice = st.selectbox("🛋 Furnishing", [
+        "baru", "furnished", "semi furnished", "unfurnished"
+    ])
+    submit = st.form_submit_button("🔍 Prediksi Harga Rumah")
 
-    sample_raw = pd.DataFrame([{
-        "bedrooms": bedrooms,
-        "bathrooms": bathrooms,
-        "land_size_m2": land_size_m2,
-        "building_size_m2": building_size_m2,
-        "floors": floors,
-        "city": city_choice,
-        "furnishing": furnishing_choice
-    }])
-    st.subheader("Ringkasan Input")
-    st.table(sample_raw.T.rename(columns={0: "Nilai"}))
+sample_raw = pd.DataFrame([{
+    "bedrooms": bedrooms,
+    "bathrooms": bathrooms,
+    "land_size_m2": land_size_m2,
+    "building_size_m2": building_size_m2,
+    "floors": floors,
+    "city": city_choice,
+    "furnishing": furnishing_choice
+}])
 
-def build_onehot_dict(city, furnishing):
-    cities = ["Bekasi", "Bogor", "Depok", "Jakarta Barat", "Jakarta Pusat",
-              "Jakarta Selatan", "Jakarta Timur", "Jakarta Utara", "Tangerang"]
-    furns = ["baru", "furnished", "semi furnished", "unfurnished"]
+def build_onehot(city, furnishing):
+    cities = ["Bekasi","Bogor","Depok","Jakarta Barat","Jakarta Pusat",
+              "Jakarta Selatan","Jakarta Timur","Jakarta Utara","Tangerang"]
+    furns = ["baru","furnished","semi furnished","unfurnished"]
     d = {}
     for c in cities:
         d[f"city_ {c}"] = 1 if c == city else 0
-        d[f"city_{c}"] = 1 if c == city else 0
     for f in furns:
-        key_space = f"furnishing_{f}"
-        key_normal = f"furnishing_{f}"
-        d[key_space] = 1 if f == furnishing else 0
-        d[key_normal] = 1 if f == furnishing else 0
+        d[f"furnishing_{f}"] = 1 if f == furnishing else 0
     return d
 
 def get_expected_features(model_obj):
-    try:
-        feats = getattr(model_obj, "feature_names_in_", None)
-        return list(feats) if feats is not None else None
-    except Exception:
-        return None
+    return list(getattr(model_obj, "feature_names_in_", []))
 
-def prepare_input_dataframe(raw_df, onehot_dict, expected_features):
-    combined = {}
-    combined.update(raw_df.iloc[0].to_dict())
-    combined.update(onehot_dict)
-    if expected_features is None:
-        return pd.DataFrame([combined])
-    row = {}
-    for feat in expected_features:
-        if feat in combined:
-            row[feat] = combined[feat]
-        else:
-            row[feat] = 0
-    return pd.DataFrame([row])
+def prepare_input(raw_df, onehot_dict, expected):
+    merged = {**raw_df.iloc[0].to_dict(), **onehot_dict}
+    return pd.DataFrame([{c: merged.get(c, 0) for c in expected}]) if expected else pd.DataFrame([merged])
 
 def safe_predict(model_obj, X):
     try:
         return model_obj.predict(X)
-    except Exception:
-        X_alt = X.reindex(sorted(X.columns), axis=1).fillna(0)
-        return model_obj.predict(X_alt)
+    except:
+        X_sorted = X.reindex(sorted(X.columns), axis=1).fillna(0)
+        return model_obj.predict(X_sorted)
 
 if submit:
-
     if building_size_m2 > land_size_m2:
-        st.error("❌ Input tidak logis: Luas bangunan tidak boleh lebih besar daripada luas tanah. Silakan koreksi input terlebih dahulu.")
+        st.error("⚠ Luas bangunan tidak boleh lebih besar dari luas tanah.")
         st.stop()
-
     if model is None:
-        st.error("Tidak ada model yang bisa dipakai untuk prediksi. Unggah model atau perbaiki file full_model.pkl.")
-    else:
-        expected_features = get_expected_features(model)
-        onehot = build_onehot_dict(city_choice, furnishing_choice)
-        X = prepare_input_dataframe(sample_raw, onehot, expected_features)
-        try:
-            with st.spinner("Melakukan prediksi..."):
-                pred = safe_predict(model, X)
-            val = float(np.array(pred).ravel()[0])
-            st.subheader("Hasil Prediksi")
-            currency = f"Rp {val:,.2f}"
-            st.success(currency)
-            st.info("Catatan: hasil prediksi bersifat estimasi berdasarkan model yang digunakan")
-        except Exception as e:
-            st.error(f"Prediksi gagal: {e}")
+        st.error("Model belum siap digunakan.")
+        st.stop()
+    onehot = build_onehot(city_choice, furnishing_choice)
+    expected_features = get_expected_features(model)
+    X = prepare_input(sample_raw, onehot, expected_features)
+    with st.spinner("⏳ Menghitung prediksi..."):
+        pred = safe_predict(model, X)
+        price = float(np.array(pred).ravel()[0])
 
-        if hasattr(model, "feature_names_in_"):
-            try:
-                st.write("Fitur yang digunakan model:")
-                st.write(list(model.feature_names_in_))
-            except Exception:
-                pass
+    st.markdown("""
+        <style>
+            .result-box {
+                background: #e9f5ff;
+                padding: 25px;
+                border-radius: 12px;
+                border-left: 10px solid #0077b6;
+            }
+            .result-text { font-size: 30px; font-weight: bold; color: #004a7c; }
+        </style>
+    """, unsafe_allow_html=True)
 
-        if hasattr(model, "feature_importances_"):
-            try:
-                fi = np.array(model.feature_importances_)
-                cols = X.columns.tolist()
-                if len(fi) == len(cols):
-                    imp_df = pd.DataFrame({
-                        "feature": cols,
-                        "importance": fi
-                    }).sort_values("importance", ascending=False)
-                    st.subheader("Peringkat Feature Importance")
-                    st.table(imp_df.head(10).reset_index(drop=True))
-            except Exception:
-                pass
+    st.markdown(f"""
+        <div class="result-box">
+            <div class="result-text">💰 Estimasi Harga: Rp {price:,.2f}</div>
+            <p style="margin-top:10px;">Estimasi bersifat indikatif berdasarkan model machine learning.</p>
+        </div>
+    """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.caption("Aplikasi prediksi harga rumah ini bekerja menggunakan model machine learning. Semakin baik model dan data latih, semakin akurat hasil prediksi.")
+st.caption("✨ Aplikasi prediksi harga rumah")
