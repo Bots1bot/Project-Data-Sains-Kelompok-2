@@ -86,13 +86,6 @@ def build_onehot_dict(city, furnishing):
 def get_expected_features(model_obj):
     try:
         feats = getattr(model_obj, "feature_names_in_", None)
-        if feats is None:
-            try:
-                transformer = getattr(model_obj, "named_steps", None)
-                if transformer:
-                    return None
-            except Exception:
-                pass
         return list(feats) if feats is not None else None
     except Exception:
         return None
@@ -114,43 +107,37 @@ def prepare_input_dataframe(raw_df, onehot_dict, expected_features):
 def safe_predict(model_obj, X):
     try:
         return model_obj.predict(X)
-    except Exception as e:
-        try:
-            X_alt = X.reindex(sorted(X.columns), axis=1).fillna(0)
-            return model_obj.predict(X_alt)
-        except Exception as e2:
-            raise RuntimeError(f"Prediksi gagal: {e} | fallback gagal: {e2}")
+    except Exception:
+        X_alt = X.reindex(sorted(X.columns), axis=1).fillna(0)
+        return model_obj.predict(X_alt)
 
 if submit:
+
+    if building_size_m2 > land_size_m2:
+        st.error("❌ Input tidak logis: Luas bangunan tidak boleh lebih besar daripada luas tanah. Silakan koreksi input terlebih dahulu.")
+        st.stop()
+
     if model is None:
         st.error("Tidak ada model yang bisa dipakai untuk prediksi. Unggah model atau perbaiki file full_model.pkl.")
     else:
         expected_features = get_expected_features(model)
         onehot = build_onehot_dict(city_choice, furnishing_choice)
         X = prepare_input_dataframe(sample_raw, onehot, expected_features)
-        st.write("Menyiapkan data untuk model...")
         try:
             with st.spinner("Melakukan prediksi..."):
                 pred = safe_predict(model, X)
-            if pred is None:
-                st.error("Model tidak mengembalikan prediksi.")
-            else:
-                try:
-                    val = float(np.array(pred).ravel()[0])
-                    st.subheader("Hasil Prediksi")
-                    currency = f"Rp {val:,.2f}"
-                    st.success(currency)
-                    st.info("Catatan: Hasil prediksi bersifat estimasi berdasarkan model yang digunakan")
-                except Exception as e:
-                    st.error(f"Gagal mengolah output prediksi: {e}")
+            val = float(np.array(pred).ravel()[0])
+            st.subheader("Hasil Prediksi")
+            currency = f"Rp {val:,.2f}"
+            st.success(currency)
+            st.info("Catatan: hasil prediksi bersifat estimasi berdasarkan model yang digunakan")
         except Exception as e:
-            st.error(str(e))
+            st.error(f"Prediksi gagal: {e}")
 
         if hasattr(model, "feature_names_in_"):
             try:
-                imported_feats = list(model.feature_names_in_)
-                st.write("Model mengharapkan fitur berikut:")
-                st.write(imported_feats)
+                st.write("Fitur yang digunakan model:")
+                st.write(list(model.feature_names_in_))
             except Exception:
                 pass
 
@@ -163,10 +150,10 @@ if submit:
                         "feature": cols,
                         "importance": fi
                     }).sort_values("importance", ascending=False)
-                    st.subheader("Feature importance (peringkat)")
+                    st.subheader("Peringkat Feature Importance")
                     st.table(imp_df.head(10).reset_index(drop=True))
             except Exception:
                 pass
 
 st.markdown("---")
-st.caption("Perkirakan harga rumah dengan memasukkan atribut properti. Hasil tergantung model yang digunakan. Untuk troubleshooting, unggah model .pkl yang sama dengan pipeline yang digunakan saat pelatihan.")
+st.caption("Aplikasi prediksi harga rumah ini bekerja menggunakan model machine learning. Semakin baik model dan data latih, semakin akurat hasil prediksi.")
